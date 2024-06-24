@@ -1,0 +1,247 @@
+        ORG 0
+        B MAIN
+
+        ORG 0x18
+        B STOP
+
+MAIN    MSR CPSR, #0b11010010 ; init stack
+        MOV R13, #0x10000
+        MSR CPSR, #0b11010011
+        MOV R13, #0xF000
+
+        MRS R0, CPSR ; enable IRQ stop
+        BIC R0, R0, #0x80
+        MSR CPSR, R0
+
+INIT    LDR R0, GPIO2 ; GPIO-a 2 address
+        LDR R2, GPIO1 ; GPIO-a 1 address
+
+        MOV R1, #0b11100000 ; direction gate A (GPIO2)
+        STR R1, [R0, #8] ; direction PA_DDR
+        MOV R1, #0b00000000 ; direction gate B (GPIO1)
+        STR R1, [R2, #12] ; direction PB_DDR
+
+        BL R_INIT ; init RTC
+
+ST1     LDR R4, RTC
+        MOV R3, #0
+        STR R3, [R4, #0x10] ; disable stop (CR)
+        MOV R7, #1 ; counter for state 5
+        MOV R8, #0 ; counter for state 6
+        MOV R5, #0x0D
+        BL LCDWR
+        MOV R5, #0x53
+        BL LCDWR
+        MOV R5, #0x50
+        BL LCDWR
+        MOV R5, #0x52
+        BL LCDWR
+        MOV R5, #0x45
+        BL LCDWR
+        MOV R5, #0x4D
+        BL LCDWR
+        MOV R5, #0x4E
+        BL LCDWR
+        MOV R5, #0x4F
+        BL LCDWR
+        MOV R5, #0x0A
+        BL LCDWR ; print SPREMNO
+
+        MOV R1, #0b00000000
+        STR R1, [R0] ; diode
+
+ST1_T   LDR R3, [R0] ; data coming to GPIO2, should be 0
+        ANDS R3, R3, #0b00000001 ; check button
+        BEQ ST1_T
+
+ST2     MOV R5, #0x0D
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP ; go back to state 1 from ERROR
+        MOV R5, #0x50
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x52
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x49
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x50
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x52
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x45
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x4D
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x41
+        BL LCDWR
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R5, #0x0A
+        BL LCDWR ; print PREP
+        BL BUTTON
+        CMP R8, #0
+        BNE LOOP
+        MOV R1, #0b00100000
+        STR R1, [R0] ; diode
+        MOV R3, #0
+        STR R3, [R4, #0xC] ; remove LR counter
+        STR R3, [R4, #8]
+        MOV R3, #1
+        STR R3, [R4, #0x10] ; enable stop CR
+
+LOOP  CMP R7, #7
+        BGT ST1
+        CMP R8, #7
+        BGT ST1
+        BL BUTTON
+        B LOOP
+
+R_INIT  STMFD SP!, {R3, R4}
+        LDR R4, RTC ; address RTC
+        MOV R3, #0
+        STR R3, [R4, #8]
+        STR R3, [R4, #0xC] ; remove counter (LR)
+        MOV R3, #30
+        STR R3, [R4, #4] ; constant (MR)
+        LDMFD SP!, {R3, R4}
+        MOV PC, LR
+
+LCDWR   STMFD R13!, {R5}
+        AND R5, R5, #0x7F
+        STRB R5, [R2, #4]
+        ORR R5, R5, #0x80
+        STRB R5, [R2, #4]
+        AND R5, R5, #0x7F
+        STRB R5, [R2, #4]
+        LDMFD R13!, {R5}
+        MOV PC, LR
+
+BUTTON   LDR R3, [R0]
+        ANDS R3, R3, #0b00000001 ; check button
+        BEQ NOT
+        ADD R8, R8, #1 ; button pressed - go to 6
+        MOV R3, #1
+        STR R3, [R4, #0x10] ; enable stop (CR)
+        MOV R3, #29
+        STR R3, [R4, #0xC] ; counter setting (LR)
+NOT     MOV PC, LR
+
+STOP    STMFD SP!, {R0, R1, R3, LR}
+        CMP R8, #0
+        BNE ST6
+        LDR R1, [R0]
+
+        CMP R1, #0b01100000 ; current state 3 -> if yes go to 4
+        BEQ ST4
+        CMP R1, #0b11100000 ; current state 4 -> if yes go to 5
+        BEQ ST5
+        CMP R1, #0b00000000; state 5 blinking
+        BEQ ST5
+ST3      ; LCD printed already
+        MOV R1, #0b01100000
+        STR R1, [R0] ; diode
+        B OUT
+ST4      ; LCD printed already
+        MOV R1, #0b11100000
+        STR R1, [R0] ; diode
+        B OUT
+ST5     CMP R7, #1
+        BNE DIODE5
+        MOV R5, #0x0D
+        BL LCDWR
+        MOV R5, #0x47
+        BL LCDWR
+        MOV R5, #0x4F
+        BL LCDWR
+        MOV R5, #0x54
+        BL LCDWR
+        MOV R5, #0x4F
+        BL LCDWR
+        MOV R5, #0x56
+        BL LCDWR
+        MOV R5, #0x4F
+        BL LCDWR
+        MOV R5, #0x0A
+        BL LCDWR ; print DONE
+
+DIODE5  ; diode (all 3)
+        ANDS R1, R7, #1 ; check even odd
+        BEQ PAR ; convert to 111
+NEP     MOV R5, #0b11100000
+        B ALWAYS
+
+PAR     CMP R7, #7 ; check state 5
+        ADDEQ R7, R7, #1
+        BEQ OUT
+        MOV R5, #0b00000000
+
+ALWAYS  STR R5, [R0]
+        ADD R7, R7, #1
+        B OUT
+
+ST6     CMP R8, #1
+        BNE DIODE6
+        MOV R5, #0x0D
+        BL LCDWR
+        MOV R5, #0x47
+        BL LCDWR
+        MOV R5, #0x52
+        BL LCDWR
+        MOV R5, #0x45
+        BL LCDWR
+        MOV R5, #0x53
+        BL LCDWR
+        MOV R5, #0x4B
+        BL LCDWR
+        MOV R5, #0x41
+        BL LCDWR
+        MOV R5, #0x0A
+        BL LCDWR ; ispis GRESKA
+
+DIODE6  ; diode (red blinking)
+        ANDS R1, R8, #1 ; check odd
+        BEQ PAR6 ; convert to 000
+NEP6    MOV R5, #0b00100000
+        B ALWAYS6
+
+PAR6    CMP R8, #7 ; check state 6
+        ADDEQ R8, R8, #1
+        BEQ OUT
+        MOV R5, #0b00000000
+
+ALWAYS6 STR R5, [R0]
+        ADD R8, R8, #1
+
+OUT     LDR R3, RTC
+        STR R3, [R3, #8]
+        MOV R0, #0
+        STR R0, [R3, #0xC]
+        LDMFD SP!, {R0, R1, R3, LR}
+        SUBS PC, LR, #4
+
+GPIO1   DW 0XFFFF0F00
+GPIO2   DW 0XFFFF0B00
+RTC     DW 0XFFFF0E00
