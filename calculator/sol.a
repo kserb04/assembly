@@ -1,0 +1,84 @@
+        MOV R0, #0X600 ; data stream
+        MOV R4, #0X2000 ; result stream
+        MVN R7, #0 ; 0xFFFF FFFF - END
+
+LOOP    LDR R1, [R0], #4 ; 1st operand
+        LDR R2, [R0], #4 ; 2nd operand
+        LDR R3, [R0], #4 ; action
+
+        CMP R3, R7
+        BEQ END
+
+        CMP R3, #0
+        BEQ SUBTR
+
+        CMP R3, #1
+        BEQ SUM
+
+        CMP R3, #2
+        BEQ MULTIPLY
+
+        MOV SP, #0X1000
+        SUB SP, SP, #4 ; result space
+        STMFD SP!, {R1, R2} ; arguments to stack
+        BL DIVIDE
+        ADD SP, SP, #8
+        LDMFD SP!, {R6} ; take results from stack
+        STR R6, [R4], #4 ; save results
+        B LOOP
+
+SUBTR   SUB R5, R1, R2
+        STR R5, [R4], #4
+        B LOOP
+
+SUM     ADD R5, R1, R2
+        STR R5, [R4], #4
+        B LOOP
+
+MULTIPLY   MUL R5, R1, R2
+        STR R5, [R4], #4
+        B LOOP
+
+DIVIDE  STMFD SP!, {R3, R4, R5, R8}
+        MOV R6, #0 ; result
+        LDR R3, [SP, #16] ; 1st parametar
+        ANDS R4, R3, #0X80000000 ; move 1 if 0, else convert
+        BEQ NEXT1
+
+        SUB R3, R3, #1
+        EOR R3, R3, R7 ; r3 contains abs of 1st param
+        MOV R8, #1 ; number was negative
+
+NEXT1  LDR R4, [SP, #20] ; 2nd parametar
+        CMP R4, #0
+        BEQ ZERO
+
+        ANDS R5, R4, #0X80000000
+        BEQ NEXT2
+
+        SUB R4, R4, #1
+        EOR R4, R4, R7 ; r4 contains abs of 2nd param
+        SUB R8, R8, #1 ; r8 is 0 if both params have same sign
+
+ ; divide loop
+
+NEXT2  CMP R3, R4
+        BLO RES
+        SUB R3, R3, R4
+        ADD R6, R6, #1
+        B NEXT2
+
+ZERO    B OUT ; result is 0 from before, divide done
+
+ ; renew context, put result to stack
+RES     CMP R8, #0
+        BEQ OUT ; no conversion, skip
+        EOR R6, R6, R7
+        ADD R6, R6, #1 ; r6 has result in 2k
+
+OUT     STR R6, [SP, #24]
+        LDMFD SP!, {R3, R4, R5, R8}
+        MOV PC, LR
+
+END     STR R7, [R4] ; end
+        SWI 0X123456
